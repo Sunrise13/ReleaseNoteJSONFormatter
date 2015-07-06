@@ -3,6 +3,7 @@
  */
 
 var fs = require('fs');
+var readline = require('readline');
 
 var releaseNotesPath = process.argv[2];
 var releaseNotesTypes = {
@@ -10,46 +11,49 @@ var releaseNotesTypes = {
     change: "CHANGE"
 };
 
-fs.readFile(releaseNotesPath, function (err, data) {
-    if (err)
-        throw err;
-    var bufText = data.toString().trim();
-    var notesText = bufText.split('\r\n\r\n');
-    var releaseNotesObj = { data: [] };
+var stream = fs.createReadStream(releaseNotesPath);
 
-    for (var noteText in notesText) {
-        if(notesText.hasOwnProperty(noteText)) {
+var rd = readline.createInterface({
+    input: stream
+});
 
-            var note = {
-                items: {},
-                date: null
-            };
-            var noteArr = notesText[noteText].split('\r\n');
+var releaseNotesObj = { data: [] };
 
-            note.date = !isNaN(Date.parse(noteArr[0])) ? noteArr[0] : "";
+function Note() {
+    this.items = {
+        NEW: [],
+        CHANGES: []
+    };
+    this.date = null;
+};
 
-            var startWithStr = new RegExp("^" + releaseNotesTypes.new + ":");
-            for (var i = 1; i<noteArr.length; i++) {
-                if (noteArr[i].match(startWithStr)) {
-                    note.items.NEW = note.items.NEW || [];
-                    note.items.NEW.push({
-                        type: 'NEW',
-                        note: noteArr[i].replace(startWithStr, "")
-                    });
-                }
-                startWithStr = new RegExp("^" + releaseNotesTypes.change + ":");
-                if (noteArr[i].match(startWithStr)) {
-                    note.items.CHANGES = note.items.CHANGES || [];
-                    note.items.CHANGES.push({
-                        type: 'CHANGES',
-                        note: noteArr[i].replace(startWithStr, "")
-                    });
-                }
-            }
-            releaseNotesObj.data.push(note);
-        }
+var noteObj = new Note();
+
+rd.on('line', function (line) {
+    if(line === "") {
+        releaseNotesObj.data.push(noteObj);
+        noteObj = new Note();
+        return;
     }
+    if(!isNaN((Date.parse(line.trim())))) {
+        noteObj.date = line;
+        return;
+    }
+    var noteStr;
+    if(line.match(/^NEW/)) {
+        noteStr = line.replace(new RegExp("^" + releaseNotesTypes.new + ": "), "");
+        noteObj.items.NEW.push(noteStr);
+        return;
+    }
+    if(line.match(/^CHANGE/)) {
+        noteStr = line.replace(new RegExp("^" + releaseNotesTypes.change + ": "), "");
+        noteObj.items.CHANGES.push(noteStr);
+        return;
+    }
+});
 
+rd.on('close', function(line) {
+    console.log(JSON.stringify(releaseNotesObj));
     fs.writeFile(process.argv[2].replace(/\.[^/.]+$/, ".json") ,JSON.stringify(releaseNotesObj), function (err) {
         if(err)
             throw err;
